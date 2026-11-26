@@ -1,0 +1,6 @@
+/* V2.5: safety controls, opt-in drafts and bounded batch operations */
+.registration-safety{grid-column:1/-1;margin:12px 0;padding:13px 15px;background:#101626;border:1px solid var(--line);border-radius:10px;min-width:0;overflow-wrap:anywhere}
+.registration-safety p{font-size:.83rem;line-height:1.5;margin:0 0 9px}.registration-safety small{display:block;color:var(--muted);margin-top:8px}.registration-safety .actions{gap:8px;flex-wrap:wrap}.registration-safety iframe{max-width:100%}
+.field-issue{display:block;font-size:.75rem;color:#ffb0b8;line-height:1.4}.maintenance-banner{background:#29251c;color:#fff0a3;border:1px solid #5d502a;border-radius:10px;padding:12px 15px;font-size:.86rem}
+.admin-v23 .bulk-toolbar{border:1px solid #414d65;border-radius:10px;padding:14px;margin:0 0 14px;background:#0d1322}.admin-v23 .bulk-toolbar p{font-size:.78rem;color:var(--muted);margin:0}.admin-v23 .bulk-toolbar .actions{margin:10px 0 0;gap:8px}.admin-v23 .bulk-toolbar select{width:auto;min-width:160px;max-width:100%}
+@media(max-width:600px){.admin-v23 .bulk-toolbar .actions{display:grid;grid-template-columns:minmax(0,1fr)}.admin-v23 .bulk-toolbar select{width:100%;min-width:0}.registration-safety .actions .btn{width:100%}}

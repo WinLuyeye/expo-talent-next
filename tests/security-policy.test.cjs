@@ -1,0 +1,14 @@
+const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const ts=require('typescript');
+const m={exports:{}};new Function('module','exports',ts.transpileModule(fs.readFileSync('lib/security-policy.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(m,m.exports);
+const {validPhone,validMatricule,safeText,safeHttps,fieldIssue,sanitizeDraft,readDraft,validIdleStamp,captchaMode,DRAFT_TTL_MS,IDLE_SECONDS}=m.exports;
+test('telephone local et international',()=>{assert(validPhone('+243 818 897 032'));assert(validPhone('0818897032'));});
+test('telephone rejette lettres, signes seuls et trop de chiffres',()=>{for(const s of ['+++++++','123abc123','123456','1234567890123456','12+3456789'])assert(!validPhone(s));});
+test('matricule non vide, sans contrôle Unicode',()=>{assert(validMatricule('ISS-2026/ABC'));assert(!validMatricule('---'));assert(!validMatricule('A'));assert(!validMatricule('ABC\u202eDEF'));});
+test('texte rejette caractères dangereux, accepte accents',()=>{assert(safeText('L’étudiant\nRéussite'));assert(!safeText('a\0b'));});
+test('HTTPS sans identifiants',()=>{assert(safeHttps('https://example.com/path'));for(const s of ['http://example.com','javascript:alert(1)','https://u:p@example.com','https:foo'])assert(!safeHttps(s));});
+test('champ requis, facultatif, consentement',()=>{assert(fieldIssue('nom','  '));assert.equal(fieldIssue('video','',false),'');assert(fieldIssue('reglement','true'));assert.equal(fieldIssue('reglement',true),'');});
+test('validation groupe',()=>{assert(fieldIssue('participants','1'));assert(fieldIssue('participants','2.5'));assert.equal(fieldIssue('participants','2'),'');});
+test('brouillon ne contient aucun consentement ni jeton',()=>{assert.deepEqual(sanitizeDraft({nom:'Test',participants:2,certifie:true,reglement:true,consentement:true,website:'spam',captchaToken:'secret',file:'file'}),{nom:'Test',participants:2});});
+test('brouillon expiré, futur ou malformé refusé',()=>{const now=1000000000;assert.equal(readDraft(JSON.stringify({saved:now-DRAFT_TTL_MS,values:{nom:'a'}}),now),null);assert.equal(readDraft(JSON.stringify({saved:now+1}),now),null);assert.equal(readDraft('not json',now),null);assert.equal(readDraft(JSON.stringify({saved:now-1000,values:{nom:'a'}}),now).values.nom,'a');});
+test('inactivité serveur vérifiée',()=>{const now=2000000000;assert(validIdleStamp(now-1000,now));assert(!validIdleStamp(now-IDLE_SECONDS*1000,now));assert(!validIdleStamp(now+6000,now));assert(!validIdleStamp(NaN,now));});
+test('Turnstile ne se désactive pas silencieusement si configuration incomplète',()=>{assert.equal(captchaMode('site','secret','true'),'enabled');assert.equal(captchaMode('site','','false'),'misconfigured');assert.equal(captchaMode('','','true'),'misconfigured');assert.equal(captchaMode('','','false'),'disabled');});

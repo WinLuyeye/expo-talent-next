@@ -3,10 +3,11 @@ import {createClient} from '@supabase/supabase-js';
 import {createServerClient} from '@supabase/ssr';
 import {cookies} from 'next/headers';
 import {Resend} from 'resend';
-import {createHmac,randomUUID} from 'node:crypto';
+import {createHmac,randomUUID,timingSafeEqual} from 'node:crypto';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import QRCode from 'qrcode';
 import {acceptancePDF,acceptanceSubject} from './acceptance';
+import {IDLE_SECONDS,validIdleStamp} from './security-policy';
 import {needsSecondFactor} from './mfa-policy';
 import {defaults,fullName,type Entry,type Settings} from './shared';
 export class HttpError extends Error{constructor(message:string,public status=400){super(message)}}
@@ -17,15 +18,32 @@ export function must<T>(r:{data:T;error:any}):NonNullable<T>{if(r.error||r.data=
 export async function settings(){const r=must(await db().from('event_settings').select('data').eq('id',1).single());return {...defaults,...r.data} as Settings}
 type AuthClient=Awaited<ReturnType<typeof auth>>;
 export async function requireAdminIdentity(client?:AuthClient){
-  const a=client??await auth();const {data:{user},error}=await a.auth.getUser();
+  const a=client??await auth();const {data:{session},error:sessionError}=await a.auth.getSession();
+  if(sessionError||!session)throw new HttpError('Connexion requise.',401);
+  const {data:{user},error}=await a.auth.getUser(session.access_token);
   if(error||!user)throw new HttpError('Connexion requise.',401);
   const r=await db().from('admin_roles').select('role').eq('id',user.id).maybeSingle();
   if(r.error)throw new HttpError('Vérification des permissions indisponible.',503);
   if(!r.data||!['owner','reviewer'].includes(r.data.role))throw new HttpError('Accès refusé.',403);
-  return {id:user.id,email:user.email||'',role:r.data.role as 'owner'|'reviewer'};
+  let sessionId:string;try{sessionId=JSON.parse(Buffer.from(session.access_token.split('.')[1],'base64url').toString('utf8')).session_id;if(typeof sessionId!=='string'||!/^[0-9a-f-]{36}$/i.test(sessionId))throw Error('session');}catch{throw new HttpError('Session invalide.',401);}
+  return {id:user.id,email:user.email||'',role:r.data.role as 'owner'|'reviewer',sessionId};
 }
-export async function adminAccess(client?:AuthClient){
-  const a=client??await auth();const me=await requireAdminIdentity(a);
+const idleCookie='expo-admin-activity';
+export async function clearAdminActivity(){(await cookies()).delete(idleCookie)}
+async function checkAdminActivity(userId:string,sessionId:string,initialize:boolean){
+  const jar=await cookies(), now=Date.now();
+  if(!initialize){const value=jar.get(idleCookie)?.value||'',parts=value.split('.');const stamp=Number(parts[0]);const expected=digest('admin-idle:'+userId+':'+sessionId+':'+parts[0]);
+    if(parts.length!==2||!validIdleStamp(stamp,now)||!/^[a-f0-9]{64}$/.test(parts[1]||'')||!timingSafeEqual(Buffer.from(parts[1],'hex'),Buffer.from(expected,'hex')))throw new HttpError('Session expirée. Reconnecte-toi.',401);
+  }
+  const signed=now+'.'+digest('admin-idle:'+userId+':'+sessionId+':'+now);
+  jar.set(idleCookie,signed,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'strict',path:'/',maxAge:IDLE_SECONDS});
+}
+export async function auditEvent(actorId:string,action:'session.login'|'session.logout'|'export.request'|'attachment.request'|'notification.request'|'gallery.request'|'account.request',target:string,details:Record<string,string|number>={}){
+  const r=await db().from('admin_audit').insert({actor_id:actorId,action,target_ref:target,details});if(r.error)throw new HttpError('Journal de sécurité indisponible.',503);
+}
+export async function adminAccess(client?:AuthClient,initialize=false){
+  const a=client??await auth();const {sessionId,...me}=await requireAdminIdentity(a);
+  await checkAdminActivity(me.id,sessionId,initialize);
   const {data:level,error:levelError}=await a.auth.mfa.getAuthenticatorAssuranceLevel();
   const {data:factors,error:factorError}=await a.auth.mfa.listFactors();
   if(levelError||factorError||!level||!factors||!level.currentLevel)throw new HttpError('Vérification de sécurité indisponible.',503);

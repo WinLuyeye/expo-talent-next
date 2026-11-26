@@ -1,7 +1,10 @@
 // Read-only smoke test, no real accounts or credentials, no registration or email.
 const origin = new URL(process.env.SMOKE_BASE_URL || 'http://localhost:3000').origin;
 const tests = [
-  ['public page', '/', r => r.status === 200],
+  ['public page and CSP', '/', r => r.status === 200 && !!r.headers.get('content-security-policy')],
+  ['coordination page', '/espace-coordination', r => r.status === 200],
+  ['old admin redirect', '/admin', r => [307,308].includes(r.status) && (r.headers.get('location')||'').endsWith('/espace-coordination')],
+  ['audience denied', '/api/admin/traffic?days=7', r => [401,403].includes(r.status)],
   ['public configuration', '/api/config', async r => r.status === 200 && typeof (await r.json()).settings?.open === 'boolean'],
   ['admin data denied', '/api/admin/data', r => [401,403].includes(r.status)],
   ['admin session denied', '/api/admin/session', r => [401,403].includes(r.status)],

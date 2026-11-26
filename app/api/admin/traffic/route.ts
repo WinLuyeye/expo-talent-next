@@ -1,17 +1,18 @@
 import {NextResponse} from 'next/server';
 import ExcelJS from 'exceljs';
-import {db,requireAdmin,HttpError,must} from '@/lib/server';
+import {db,requireAdmin,HttpError,must,auditEvent} from '@/lib/server';
 import {summarizeTraffic,deviceLabels,channelLabels,type TrafficReport} from '@/lib/traffic-model';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 const headers={'Cache-Control':'no-store','X-Robots-Tag':'noindex, nofollow'};
 export async function GET(req:Request){
   try{
-    await requireAdmin(true);
+    const me=await requireAdmin(true);
     const params=new URL(req.url).searchParams,period=params.get('days')||'30',format=params.get('format')||'json';
     if(!['7','30','90'].includes(period)||!['json','csv','xlsx'].includes(format))throw new HttpError('Période ou format invalide.');
     const report=must(await db().rpc('expo_traffic_report',{p_days:Number(period)})) as TrafficReport;
     if(format==='json')return NextResponse.json(report,{headers});
+    await auditEvent(me.id,'export.request','audience.'+format,{days:Number(period)});
     const summary=summarizeTraffic(report),name=`expo-talent-audience-${report.start}-${report.end}`;
     const daily=[['Date (Kinshasa)','Pages vues','Sessions quotidiennes estimées','Inscriptions réelles'],...summary.daily.map(r=>[r.day,r.pageviews,r.sessions,r.registrations])];
     const breakdown=[['Date (Kinshasa)','Appareil','Provenance','Pages vues','Sessions attribuées'],...report.rows.map(r=>[r.day,deviceLabels[r.device],channelLabels[r.channel],r.pageviews,r.sessions])];

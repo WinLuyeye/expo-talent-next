@@ -31,6 +31,8 @@ import {
 } from "lucide-react";
 import { api, downloadPDF, err } from "@/lib/client";
 import { AudienceSettings } from "./PublicTraffic";
+import { DraftControls, TurnstileWidget, useRegistrationDraft } from "./RegistrationSafety";
+import { fieldIssue, stepFields } from "@/lib/security-policy";
 import {
   categories,
   descriptions,
@@ -145,14 +147,29 @@ export default function PublicSite() {
     [trackPdf, setTrackPdf] = useState(""),
     [tracking, setTracking] = useState(false);
   const honey = useRef<HTMLInputElement>(null);
+  const submitting = useRef(false);
+  const [captcha, setCaptcha] = useState({ mode: "disabled", siteKey: "" });
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaAttempt, setCaptchaAttempt] = useState(0);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const draft = useRegistrationDraft(v, setV, setStep, !!success);
+  const optional = new Set(["sexe", "vacation", "video", "besoins"]);
+  const academic: Record<string, string[]> = { filiere: cfg.filieres, departement: cfg.departements, promotion: cfg.promotions, vacation: cfg.vacations, categorie: cfg.categories };
+  function issue(k: string, value: unknown, required = !optional.has(k)) {
+    const problem = fieldIssue(k, value, required);
+    if (problem) return problem;
+    if (value && academic[k]?.length && !academic[k].includes(String(value))) return "Sélectionne une valeur proposée.";
+    return "";
+  }
   const { scrollY } = useScroll(),
     reduce = useReducedMotion(),
     y = useTransform(scrollY, [0, 700], [0, 100]);
   useEffect(() => {
-    api<{ settings: Settings; gallery: Gallery[] }>("config")
+    api<{ settings: Settings; gallery: Gallery[]; turnstile?: { mode: string; siteKey: string } }>("config")
       .then((r) => {
         setCfg(r.settings);
         setGallery(r.gallery);
+        if (r.turnstile) setCaptcha(r.turnstile);
         setReady(true);
       })
       .catch((e) => setConfigError(err(e)));
@@ -186,12 +203,15 @@ export default function PublicSite() {
     wide = false,
   ) {
     const val = String(v[k] ?? "");
+    const problem = touched[k] ? issue(k, v[k], required) : "";
+    const validation = { id: "registration-" + k, "aria-invalid": !!problem, "aria-describedby": problem ? "issue-" + k : undefined, onBlur: () => setTouched(old => ({ ...old, [k]: true })) };
     return (
       <label className={wide ? "wide" : undefined} key={k}>
         {labels[k]}
         {required ? " *" : " (facultatif)"}
         {opts?.length ? (
           <select
+            {...validation}
             required={required}
             value={val}
             onChange={(e) => update(k, e.target.value)}
@@ -203,6 +223,7 @@ export default function PublicSite() {
           </select>
         ) : kind === "textarea" ? (
           <textarea
+            {...validation}
             required={required}
             value={val}
             maxLength={2000}
@@ -211,24 +232,40 @@ export default function PublicSite() {
         ) : (
           <input
             type={kind}
+            {...validation}
             required={required}
             value={val}
             min={kind === "number" ? 2 : undefined}
             max={kind === "number" ? 100 : undefined}
-            maxLength={kind === "url" ? 500 : 150}
+            maxLength={kind === "url" ? 500 : k === "telephone" ? 25 : 150}
             onChange={(e) => update(k, e.target.value)}
           />
         )}
+        {problem && <small id={"issue-" + k} className="field-issue">{problem}</small>}
       </label>
     );
   }
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
-    if (step < 3) {
-      setStep((s) => s + 1);
-      return;
+    if (submitting.current) return;
+    const groups: string[][] = stepFields.map(group => [...group]);
+    groups[0].push("sexe"); groups[1].push("vacation"); groups[2].push("besoins");
+    if (v.type === "En groupe") groups[2].push("groupe", "participants");
+    const indices = step === 3 ? [0, 1, 2, 3] : [step];
+    for (const index of indices) {
+      const bad = groups[index].filter(k => issue(k, v[k]));
+      if (bad.length) {
+        setTouched(old => ({ ...old, ...Object.fromEntries(bad.map(k => [k, true])) }));
+        setStep(index);
+        setError((labels[bad[0]] || bad[0]) + " : " + issue(bad[0], v[bad[0]]));
+        return;
+      }
     }
+    if (step < 3) { setStep(s => s + 1); return; }
+    if (!draft.online) { setError("Reconnecte-toi avant l’envoi. Tes champs sont conservés."); return; }
+    if (captcha.mode === "misconfigured" || (captcha.mode === "enabled" && !captchaToken)) { setError("Vérification anti-robot indisponible ou incomplète."); return; }
+    submitting.current = true;
     setBusy(true);
     try {
       const fd = new FormData();
@@ -237,6 +274,7 @@ export default function PublicSite() {
         JSON.stringify({ ...v, website: honey.current?.value || "" }),
       );
       if (file) fd.append("attachment", file);
+      if (captchaToken) fd.append("turnstile", captchaToken);
       const r = await api<{
         ref: string;
         name: string;
@@ -248,9 +286,12 @@ export default function PublicSite() {
       setEmail(String(v.email));
       setFile(null);
     } catch (e) {
-      setError(err(e));
+      setError(e instanceof TypeError ? "Connexion interrompue. Tes champs sont conservés. Si l’envoi avait déjà commencé, vérifie auprès de la coordination avant une nouvelle tentative." : err(e));
     } finally {
+      submitting.current = false;
       setBusy(false);
+      setCaptchaToken("");
+      setCaptchaAttempt(n => n + 1);
     }
   }
   async function doTrack(e: FormEvent) {
@@ -553,9 +594,10 @@ export default function PublicSite() {
                 {configError || "Chargement des inscriptions…"}
               </p>
             ) : !cfg.open ? (
-              <p>Les inscriptions sont fermées pour le moment.</p>
+              <p>{cfg.maintenance ? "Maintenance temporaire : les inscriptions et le suivi reprendront après intervention de la coordination." : "Les inscriptions sont fermées pour le moment."}</p>
             ) : (
-              <form onSubmit={submit}>
+              <form onSubmit={submit} noValidate>
+                <DraftControls draft={draft} />
                 <div className="progress">
                   <span>ÉTAPE {step + 1} / 4</span>
                   <span>{(step + 1) * 25}%</span>
@@ -614,8 +656,9 @@ export default function PublicSite() {
                           accept="image/jpeg,image/png,image/webp,application/pdf"
                           onChange={(e) => {
                             const f = e.target.files?.[0];
-                            if (f && f.size > 3 * 1024 * 1024) {
-                              setError("Fichier limité à 3 Mo.");
+                            if (f && (!f.size || f.size > 3 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(f.type))) {
+                              setFile(null);
+                              setError("Choisis un fichier JPG, PNG, WebP ou PDF de 3 Mo maximum.");
                               e.target.value = "";
                               return;
                             }
@@ -706,6 +749,8 @@ export default function PublicSite() {
                     </>
                   )}
                 </div>
+                {step === 3 && captcha.mode === "enabled" && <TurnstileWidget key={captchaAttempt} siteKey={captcha.siteKey} onToken={setCaptchaToken} />}
+                {step === 3 && captcha.mode === "misconfigured" && <p role="alert" className="error">La vérification de sécurité est momentanément indisponible.</p>}
                 <div className="honeypot" aria-hidden="true">
                   <label>
                     Site web
@@ -720,7 +765,9 @@ export default function PublicSite() {
                     <button
                       type="button"
                       className="btn outline"
+                      disabled={busy}
                       onClick={() => {
+                        setCaptchaToken("");
                         setStep((s) => s - 1);
                         setError("");
                       }}
@@ -728,7 +775,7 @@ export default function PublicSite() {
                       ← Précédent
                     </button>
                   )}
-                  <button className="btn ml-auto" disabled={busy}>
+                  <button className="btn ml-auto" disabled={busy || (step === 3 && (!draft.online || captcha.mode === "misconfigured" || (captcha.mode === "enabled" && !captchaToken)))}>
                     {busy
                       ? "Enregistrement…"
                       : step === 3
@@ -958,8 +1005,7 @@ export default function PublicSite() {
           ·{" "}
           <button className="link" onClick={() => setPolicy("privacy")}>
             Confidentialité
-          </button>{" "}
-          · <a href="/espace-coordination">Espace Coordination</a>
+          </button>
         </div>
         <p className="developer-credit">
           Conçu avec{" "}
