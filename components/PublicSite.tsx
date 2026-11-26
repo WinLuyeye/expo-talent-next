@@ -958,7 +958,7 @@ export default function PublicSite() {
           <button className="link" onClick={() => setPolicy("privacy")}>
             Confidentialité
           </button>{" "}
-          · <a href="/admin">Administration</a>
+          · <a href="/espace-coordination">Espace Coordination</a>
         </div>
         <p className="developer-credit">
           Conçu avec{" "}

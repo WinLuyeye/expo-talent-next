@@ -1,0 +1,14 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const ts=require('typescript');
+const source=fs.readFileSync('lib/traffic-model.ts','utf8');
+const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+const m={exports:{}};new Function('module','exports',compiled)(m,m.exports);
+const {classifyDevice,classifyChannel,localDay,summarizeTraffic}=m.exports;
+const site='https://expo-talent-next.vercel.app';
+for(const [name,input,expected] of [['telephone','Mozilla iPhone Mobile','mobile'],['tablette','Mozilla Android Tablet','tablet'],['ordinateur','Mozilla Windows NT 10.0','desktop'],['inconnu','','unknown']])test('appareil '+name,()=>assert.equal(classifyDevice(input),expected));
+for(const [name,input,expected] of [['direct','','direct'],['interne',site+'/abc','direct'],['google','https://www.google.cd/search?q=secret','search'],['social','https://l.facebook.com/abc','social'],['messagerie','https://wa.me/123','messaging'],['autre','https://example.org/path','referral'],['invalide','broken','direct'],['faux domaine','https://fakefacebook.com','referral']])test('canal '+name,()=>assert.equal(classifyChannel(input,site),expected));
+test('jour Kinshasa après minuit',()=>assert.equal(localDay(new Date('2026-11-25T23:30:00Z')),'2026-11-26'));
+test('agrégation cohérente, zéro rempli et pic',()=>{const s=summarizeTraffic({start:'2026-11-24',end:'2026-11-26',rows:[{day:'2026-11-24',device:'mobile',channel:'direct',pageviews:3,sessions:1},{day:'2026-11-26',device:'desktop',channel:'search',pageviews:5,sessions:2}],registrations:[{day:'2026-11-25',total:1}]});assert.equal(s.daily.length,3);assert.deepEqual(s.totals,{pageviews:8,sessions:3,registrations:1});assert.equal(s.daily[1].pageviews,0);assert.equal(s.peak.day,'2026-11-26');assert.equal(s.devices.find(d=>d.key==='mobile').pageviews,3);assert.equal(s.channels.find(d=>d.key==='search').sessions,2)});
+test('rapport vide ne crée aucune donnée artificielle',()=>{const s=summarizeTraffic({start:'2026-11-20',end:'2026-11-26',rows:[],registrations:[]});assert.equal(s.daily.length,7);assert.equal(s.peak,null);assert.deepEqual(s.totals,{pageviews:0,sessions:0,registrations:0})});

@@ -1,2 +1,3 @@
 import PublicSite from '@/components/PublicSite';
-export default function Home(){return <PublicSite/>}
+import PublicTraffic from '@/components/PublicTraffic';
+export default function Home(){return <><PublicSite/><PublicTraffic/></>}
