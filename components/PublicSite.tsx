@@ -960,6 +960,19 @@ export default function PublicSite() {
           </button>{" "}
           · <a href="/admin">Administration</a>
         </div>
+        <p className="developer-credit">
+          Conçu avec{" "}
+          <span className="developer-heart" aria-label="amour">♥</span>
+          {" "}par{" "}
+          <a
+            href="https://wa.me/243818897032"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Contacter Winner Luyeye sur WhatsApp"
+          >
+            Winner Luyeye
+          </a>
+        </p>
       </footer>
       {(light || policy) && (
         <div
