@@ -30,6 +30,7 @@ import {
   Check,
 } from "lucide-react";
 import { api, downloadPDF, err } from "@/lib/client";
+import { AudienceSettings } from "./PublicTraffic";
 import {
   categories,
   descriptions,
@@ -1014,6 +1015,7 @@ export default function PublicSite() {
                   {policy === "privacy" &&
                     "\n\nConservation : " + (cfg.retention || "À définir")}
                 </p>
+                {policy === "privacy" && <AudienceSettings />}
               </>
             )}
           </div>
