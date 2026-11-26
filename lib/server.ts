@@ -7,6 +7,7 @@ import {createHmac,randomUUID} from 'node:crypto';
 import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
 import QRCode from 'qrcode';
 import {acceptancePDF,acceptanceSubject} from './acceptance';
+import {needsSecondFactor} from './mfa-policy';
 import {defaults,fullName,type Entry,type Settings} from './shared';
 export class HttpError extends Error{constructor(message:string,public status=400){super(message)}}
 export function env(k:string){const v=process.env[k];if(!v)throw new HttpError('Configuration du service incomplète.',503);return v}
@@ -14,7 +15,31 @@ export function db(){return createClient(env('NEXT_PUBLIC_SUPABASE_URL'),env('SU
 export async function auth(){const jar=await cookies();return createServerClient(env('NEXT_PUBLIC_SUPABASE_URL'),env('NEXT_PUBLIC_SUPABASE_ANON_KEY'),{cookies:{getAll:()=>jar.getAll(),setAll:(list)=>{for(const {name,value,options} of list)jar.set(name,value,{...options,httpOnly:true,sameSite:'lax',secure:process.env.NODE_ENV==='production'})}}})}
 export function must<T>(r:{data:T;error:any}):NonNullable<T>{if(r.error||r.data===null)throw new HttpError('Opération de base de données impossible.',500);return r.data as NonNullable<T>}
 export async function settings(){const r=must(await db().from('event_settings').select('data').eq('id',1).single());return {...defaults,...r.data} as Settings}
-export async function requireAdmin(owner=false){const a=await auth();const {data:{user},error}=await a.auth.getUser();if(error||!user)throw new HttpError('Connexion requise.',401);const r=await db().from('admin_roles').select('role').eq('id',user.id).maybeSingle();if(r.error||!r.data||owner&&r.data.role!=='owner')throw new HttpError('Accès refusé.',403);return {id:user.id,email:user.email||'',role:r.data.role as 'owner'|'reviewer'}}
+type AuthClient=Awaited<ReturnType<typeof auth>>;
+export async function requireAdminIdentity(client?:AuthClient){
+  const a=client??await auth();const {data:{user},error}=await a.auth.getUser();
+  if(error||!user)throw new HttpError('Connexion requise.',401);
+  const r=await db().from('admin_roles').select('role').eq('id',user.id).maybeSingle();
+  if(r.error)throw new HttpError('Vérification des permissions indisponible.',503);
+  if(!r.data||!['owner','reviewer'].includes(r.data.role))throw new HttpError('Accès refusé.',403);
+  return {id:user.id,email:user.email||'',role:r.data.role as 'owner'|'reviewer'};
+}
+export async function adminAccess(client?:AuthClient){
+  const a=client??await auth();const me=await requireAdminIdentity(a);
+  const {data:level,error:levelError}=await a.auth.mfa.getAuthenticatorAssuranceLevel();
+  const {data:factors,error:factorError}=await a.auth.mfa.listFactors();
+  if(levelError||factorError||!level||!factors||!level.currentLevel)throw new HttpError('Vérification de sécurité indisponible.',503);
+  const verified=factors.all.filter(f=>f.status==='verified');
+  const required=process.env.ADMIN_MFA_REQUIRED==='true';
+  return {...me,mfa:{required,locked:needsSecondFactor(level.currentLevel,verified.length>0,level.nextLevel,required),currentLevel:level.currentLevel,hasVerified:verified.length>0,
+    factors:factors.all.filter(f=>f.factor_type==='totp').map(f=>({id:f.id,name:f.friendly_name||'Application d’authentification',verified:f.status==='verified'}))}};
+}
+export async function requireAdmin(owner=false){
+  const me=await adminAccess();
+  if(me.mfa.locked)throw new HttpError('Double authentification requise.',403);
+  if(owner&&me.role!=='owner')throw new HttpError('Accès refusé.',403);
+  return me;
+}
 export function digest(s:string){const key=env('TRACKING_SECRET');if(key.length<32)throw new HttpError('Configuration de sécurité incomplète.',503);return createHmac('sha256',key).update(s).digest('hex')}
 export async function limit(key:string,n:number,seconds:number){const ok=must(await db().rpc('expo_limit',{p_key:digest(key),p_max:n,p_seconds:seconds}));if(!ok)throw new HttpError('Trop de demandes. Réessaie plus tard.',429)}
 export function source(req:Request){return req.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim()||req.headers.get('x-real-ip')||'local'}

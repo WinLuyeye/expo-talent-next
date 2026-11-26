@@ -1,5 +1,7 @@
 # EXPO TALENT — ISS-KIN | Version Next.js
 
+> Mise à jour 2.1 : consulter [README-V2.1.md](README-V2.1.md) pour les modifications, la sécurité TOTP, le journal d’audit, la procédure de déploiement et les tests. Les notes de livraison initiales ci-dessous sont historiques.
+
 « Révélons aujourd’hui les talents qui façonneront demain ! »
 
 Application en français, reprenant les photographies, le logo, les portraits extraits de l'affiche et la feuille de style de la première version (fond nuit, jaune, bleu royal et fuchsia). Les composants sont réécrits en React/TypeScript, avec Tailwind CSS pour les utilitaires, Framer Motion pour les animations, Lucide pour les icônes et Recharts pour les statistiques. Aucun serveur Python ou SQLite n'est nécessaire.
