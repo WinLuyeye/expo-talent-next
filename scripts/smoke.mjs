@@ -10,7 +10,8 @@ const tests = [
   ['admin session denied', '/api/admin/session', r => [401,403].includes(r.status)],
   ['admin audit denied', '/api/admin/audit', r => [401,403].includes(r.status)],
   ['Excel export denied', '/api/admin/export.xlsx', r => [401,403].includes(r.status)],
-  ['CSV export denied', '/api/admin/export.csv', r => [401,403].includes(r.status)],
+  ['PDF export denied', '/api/admin/export.pdf', r => [401,403].includes(r.status)],
+  ['PDF audience denied', '/api/admin/traffic?days=7&format=pdf', r => [401,403].includes(r.status)],
 ];
 let fails=0;
 for (const [name,path,check] of tests) {

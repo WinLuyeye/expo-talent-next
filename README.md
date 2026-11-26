@@ -25,7 +25,7 @@ Plateforme francophone de gestion des inscriptions et des candidatures à EXPO T
 ### Espace Coordination
 
 - Tableau de bord bleu nuit, jaune et violet, navigation textuelle, recherche et filtres, cartes responsive, candidatures récentes, actions rapides, graphiques et statistiques détaillées.
-- Gestion des candidatures et de leurs statuts, lecture du QR à partir d’une image ou vérification par référence, exports CSV/XLSX et liste des participants retenus.
+- Gestion des candidatures et de leurs statuts, lecture du QR à partir d’une image ou vérification par référence, exports Excel/PDF et liste des participants retenus.
 - Notifications et relance manuelle des envois échoués ; confirmation et décision par e-mail, fiche d’acceptation PDF avec QR code (service Resend nécessaire).
 - Configuration de l’événement, publication des médias, comptes administrateurs et rôles.
 - Double authentification TOTP, journal des changements de statut et statistiques d’audience réservées au rôle `owner`.
@@ -178,7 +178,7 @@ Le statut « envoyé » signifie que Resend a accepté la demande, pas que le me
 L’onglet **Audience du site** et la vue d’ensemble utilisent les agrégats Supabase, avec des périodes de 7, 30 ou 90 jours, en fuseau `Africa/Kinshasa`.
 
 - Pages vues, sessions quotidiennes estimées, pages par session, pic de fréquentation, inscriptions réelles et distributions par appareil et canal.
-- Export CSV et XLSX (évolution quotidienne, appareils, provenances, données détaillées et méthode). Les exports d’audience sont réservés au propriétaire et ne contiennent pas de données personnelles des candidats ni d’identifiant de session.
+- Export Excel et PDF (évolution quotidienne, appareils, provenances, données détaillées et méthode). Les exports d’audience sont réservés au propriétaire et ne contiennent pas de données personnelles des candidats ni d’identifiant de session.
 - La mesure est facultative ; le consentement est modifiable dans la fenêtre Confidentialité. Les signaux DNT/GPC sont respectés. Refuser n’empêche pas l’inscription.
 - Une session estimée représente un onglet par jour, pas une personne unique. Le jeton aléatoire de session est stocké dans `sessionStorage` après accord ; son hachage journalier est conservé côté serveur pour la déduplication. Les jetons des jours précédents sont nettoyés à la prochaine collecte acceptée ; une purge planifiée reste à prévoir si nécessaire.
 - Les statistiques ne contiennent pas d’IP brute, de référent complet, de user-agent brut, de nom, d’e-mail ou de matricule. La limitation de requêtes utilise séparément une clé HMAC dérivée de l’IP. La mesure est partielle (refus, bloqueurs, référents masqués, robots non détectés et erreurs réseau).
@@ -337,3 +337,16 @@ CSP appliquée (scripts et connexions autorisés vers Turnstile, frames limitée
 ---
 
 **Conçu avec ♥ par [Winner Luyeye](https://wa.me/243818897032).**
+
+
+## V2.6 — Coordination : ergonomie, candidatures et rapports
+
+- Navigation fixe sous l’en-tête : seule la liste des rubriques défile si nécessaire ; compte et déconnexion en pied de sidebar. Sur mobile, sélecteur de rubrique et déconnexion compacts. Actualiser est contextuel, recherche dans Candidatures uniquement. Le contour blanc permanent de la classe Tailwind `outline` est neutralisé côté administration, le focus clavier est conservé.
+- Candidatures : recherche insensible aux accents et à la casse, filtres par population/promotion/filière/catégorie/statut, pagination locale 15/25/50, résultats et états vides explicites. Le tableau de bord charge toujours les données côté serveur ; la pagination visuelle n’est pas une pagination SQL. Les dossiers fictifs restent consultables mais les opérations groupées ne les modifient jamais. La sélection en lot ignore les statuts modifiés depuis la sélection et le serveur conserve les contrôles de concurrence et de rôles V2.5.
+- Statistiques détaillées : effectifs et pourcentages avec libellés complets, statut, promotion, catégorie, filière, département, vacation, type et évolution quotidienne. Population toutes/réelles/démo. Les zéros sont conservés pour les statuts. La mesure d’audience n’est pas modifiée.
+- Exports **Excel (.xlsx) et PDF (.pdf) uniquement** : dossiers filtrés, participants retenus filtrés, statistiques, audience. Les fichiers reprennent le logo et l’identité bleu nuit / jaune EXPO TALENT ; Excel utilise des feuilles thématiques, filtres, lignes alternées, en-tête figé ; PDF utilise un fond clair pour la lecture/impression, pagination, en-tête et mention confidentielle. Le PDF détaillé est limité à 300 dossiers par export ; utiliser Excel ou affiner les filtres. Les caractères hors du jeu de la police PDF standard sont remplacés par `?` ; Excel conserve les caractères d’origine. Les pièces jointes ne sont pas incluses dans les rapports, seul leur nom est exporté. Les exports de candidatures contiennent des données personnelles : ne pas les partager ni les versionner. Les exports filtrés utilisent POST pour ne pas exposer les recherches dans les URL. Les anciennes routes CSV ne sont plus proposées et renvoient une erreur aux utilisateurs authentifiés. Les contrôles d’accès et le journal des demandes d’export sont conservés.
+- Aucun changement de Supabase, de comptes, de candidatures ni de configuration de messagerie. Les inscriptions et Turnstile restent tels qu’ils sont configurés.
+
+### Recette V2.6
+
+Exécuter `npm run typecheck`, `npm test` et `npm run build`, puis vérifier le déploiement. Dans un environnement de test, vérifier le menu sticky et le focus clavier à 320, 390, 768, 1024 et 1440 px, la sidebar sur une faible hauteur, le zoom 200 %, la fiche et son retour de focus, les filtres et le lot avec données réelles de test ; les données démo ne sont pas éligibles. Tester l’export Excel/PDF avec des libellés longs, listes vides, caractères accentués et plusieurs pages ; vérifier les populations, les totaux, les permissions owner/reviewer, et le refus d’accès sans session. Les exports d’audience restent réservés au propriétaire. Ne pas créer de candidature fictive ni envoyer d’e-mails en production pour la recette.

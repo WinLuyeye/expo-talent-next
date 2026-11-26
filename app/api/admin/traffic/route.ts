@@ -1,15 +1,16 @@
 import {NextResponse} from 'next/server';
-import ExcelJS from 'exceljs';
+import {workbookReport,pdfReport,reportResponse,type Report} from '@/lib/report-export';
 import {db,requireAdmin,HttpError,must,auditEvent} from '@/lib/server';
 import {summarizeTraffic,deviceLabels,channelLabels,type TrafficReport} from '@/lib/traffic-model';
 export const runtime='nodejs';
+export const maxDuration=60;
 export const dynamic='force-dynamic';
 const headers={'Cache-Control':'no-store','X-Robots-Tag':'noindex, nofollow'};
 export async function GET(req:Request){
   try{
     const me=await requireAdmin(true);
     const params=new URL(req.url).searchParams,period=params.get('days')||'30',format=params.get('format')||'json';
-    if(!['7','30','90'].includes(period)||!['json','csv','xlsx'].includes(format))throw new HttpError('Période ou format invalide.');
+    if(!['7','30','90'].includes(period)||!['json','pdf','xlsx'].includes(format))throw new HttpError('Période ou format invalide.');
     const report=must(await db().rpc('expo_traffic_report',{p_days:Number(period)})) as TrafficReport;
     if(format==='json')return NextResponse.json(report,{headers});
     await auditEvent(me.id,'export.request','audience.'+format,{days:Number(period)});
@@ -18,15 +19,14 @@ export async function GET(req:Request){
     const breakdown=[['Date (Kinshasa)','Appareil','Provenance','Pages vues','Sessions attribuées'],...report.rows.map(r=>[r.day,deviceLabels[r.device],channelLabels[r.channel],r.pageviews,r.sessions])];
     const devices=[['Appareil','Pages vues','Sessions attribuées'],...summary.devices.map(r=>[r.label,r.pageviews,r.sessions])];
     const channels=[['Provenance','Pages vues','Sessions attribuées'],...summary.channels.map(r=>[r.label,r.pageviews,r.sessions])];
-    if(format==='csv'){
-      const rows=[['Type','Date','Appareil','Provenance','Pages vues','Sessions estimées','Inscriptions réelles'],...summary.daily.map(r=>['Total quotidien',r.day,'','',r.pageviews,r.sessions,r.registrations]),...report.rows.map(r=>['Détail',r.day,deviceLabels[r.device],channelLabels[r.channel],r.pageviews,r.sessions,''])];
-      const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(';')).join('\r\n');
-      return new NextResponse(csv,{headers:{...headers,'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${name}.csv"`}});
-    }
-    const workbook=new ExcelJS.Workbook();
-    const sheets:[string,(string|number)[][]][]=[['Évolution',daily],['Appareils',devices],['Provenances',channels],['Détails',breakdown],['Méthode',[['Indicateur','Définition'],['Période',`${report.start} au ${report.end} — Kinshasa`],['Pages vues','Chargements de la page publique avec consentement.'],['Sessions','Onglets quotidiens estimés ; non assimilables à des personnes uniques.'],['Inscriptions','Candidatures non fictives, indépendantes de la mesure d’audience.'],['Données','Aucune donnée antérieure à l’activation de la mesure.']]]];
-    for(const [title,rows] of sheets){const ws=workbook.addWorksheet(title);for(const row of rows)ws.addRow(row);ws.getRow(1).font={bold:true,color:{argb:'FF101322'}};ws.getRow(1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFE51D'}};ws.views=[{state:'frozen',ySplit:1}];ws.columns.forEach((c,i)=>c.width=title==='Méthode'&&i===1?80:27);}
-    const buffer=await workbook.xlsx.writeBuffer();
-    return new NextResponse(new Uint8Array(buffer),{headers:{...headers,'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':`attachment; filename="${name}.xlsx"`}});
+    const reportData:Report={title:'Rapport d’audience',subtitle:`${report.start} au ${report.end} · Fuseau de Kinshasa · Mesure facultative`,sections:[
+      {title:'Synthèse',headers:['Indicateur','Valeur'],rows:[['Pages vues',summary.totals.pageviews],['Sessions quotidiennes estimées',summary.totals.sessions],['Inscriptions réelles',summary.totals.registrations]],widths:[44,26]},
+      {title:'Évolution',headers:daily[0].map(String),rows:daily.slice(1),widths:[25,22,34,25]},
+      {title:'Appareils',headers:devices[0].map(String),rows:devices.slice(1),widths:[35,22,26]},
+      {title:'Provenances',headers:channels[0].map(String),rows:channels.slice(1),widths:[35,22,26]},
+      {title:'Détails',headers:breakdown[0].map(String),rows:breakdown.slice(1),widths:[25,24,28,18,26]},
+      {title:'Méthode',headers:['Indicateur','Définition'],rows:[['Pages vues','Chargements de la page publique avec consentement.'],['Sessions','Onglets quotidiens estimés, non assimilables à des personnes uniques.'],['Inscriptions','Candidatures non fictives, indépendantes des visites mesurées.'],['Limites','Pas de données historiques avant activation. Les visites sans consentement ne sont pas comptées.']],widths:[32,85]}
+    ]};
+    return reportResponse(format==='pdf'?await pdfReport(reportData):await workbookReport(reportData),format==='pdf'?'pdf':'xlsx',name);
   }catch(e){return NextResponse.json({error:e instanceof HttpError?e.message:'Statistiques indisponibles.'},{status:e instanceof HttpError?e.status:500,headers});}
 }
