@@ -6,3 +6,10 @@ node_modules/
 
 # Fichiers de mise a jour temporaires
 *.patch
+
+# Private backup data and local credentials
+backups/
+*.age
+*.dump
+*.pem
+.env.backup*

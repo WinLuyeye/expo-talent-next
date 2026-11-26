@@ -1,3 +1,4 @@
+import {securityEvent} from '@/lib/security-incidents';
 import {NextResponse} from 'next/server';
 import {workbookReport,pdfReport,reportResponse,type Report} from '@/lib/report-export';
 import {db,requireAdmin,HttpError,must,auditEvent} from '@/lib/server';
@@ -28,5 +29,5 @@ export async function GET(req:Request){
       {title:'Méthode',headers:['Indicateur','Définition'],rows:[['Pages vues','Chargements de la page publique avec consentement.'],['Sessions','Onglets quotidiens estimés, non assimilables à des personnes uniques.'],['Inscriptions','Candidatures non fictives, indépendantes des visites mesurées.'],['Limites','Pas de données historiques avant activation. Les visites sans consentement ne sont pas comptées.']],widths:[32,85]}
     ]};
     return reportResponse(format==='pdf'?await pdfReport(reportData):await workbookReport(reportData),format==='pdf'?'pdf':'xlsx',name);
-  }catch(e){return NextResponse.json({error:e instanceof HttpError?e.message:'Statistiques indisponibles.'},{status:e instanceof HttpError?e.status:500,headers});}
+  }catch(e){if(!(e instanceof HttpError)||e.status>=500)await securityEvent('server_error',req);return NextResponse.json({error:e instanceof HttpError?e.message:'Statistiques indisponibles.'},{status:e instanceof HttpError?e.status:500,headers});}
 }

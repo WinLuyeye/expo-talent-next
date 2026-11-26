@@ -350,3 +350,76 @@ CSP appliquée (scripts et connexions autorisés vers Turnstile, frames limitée
 ### Recette V2.6
 
 Exécuter `npm run typecheck`, `npm test` et `npm run build`, puis vérifier le déploiement. Dans un environnement de test, vérifier le menu sticky et le focus clavier à 320, 390, 768, 1024 et 1440 px, la sidebar sur une faible hauteur, le zoom 200 %, la fiche et son retour de focus, les filtres et le lot avec données réelles de test ; les données démo ne sont pas éligibles. Tester l’export Excel/PDF avec des libellés longs, listes vides, caractères accentués et plusieurs pages ; vérifier les populations, les totaux, les permissions owner/reviewer, et le refus d’accès sans session. Les exports d’audience restent réservés au propriétaire. Ne pas créer de candidature fictive ni envoyer d’e-mails en production pour la recette.
+
+## V2.7 — Durcissement sécurité (à mettre en production après recette)
+
+Cette version conserve le design, les comptes, les candidatures, la MFA progressive et Turnstile. La migration `20261126155533_expo_v27_security_incidents.sql` a déjà été appliquée au projet de production le 26/11/2026. Ne pas la rejouer manuellement sur ce projet. Aucune autre modification de données n'est nécessaire.
+
+### 1. Dépendances et déploiements bloquants
+
+- `package-lock.json` doit être créé à partir du `package.json` V2.7 par npm et commité. Ne pas fabriquer le lockfile ni utiliser un fichier d'une version antérieure. Le registre npm était inaccessible dans l'environnement de préparation ; l'audit réel n'a donc pas pu être terminé. Sur un poste connecté :
+
+```powershell
+npm install --package-lock-only --ignore-scripts
+npm ci
+npm audit --audit-level=high
+npm run build
+```
+
+`prebuild` lance systématiquement `npm run typecheck`, `npm test` puis `npm audit --audit-level=high`. Une vulnérabilité haute/critique ou un audit indisponible bloque la compilation et évite une promotion non contrôlée sur Vercel. Les avertissements modérés/faibles doivent également être examinés ; ne pas appliquer `npm audit fix --force` sans examiner les changements et tester. Ne jamais ignorer une erreur de build. Le CI utilise `npm ci` sans fallback et `npm run build`. Dans Vercel Settings > Build and Deployment, vérifier que le build appelle bien `npm run build` (le réglage `npm run typecheck && npm test && npm run build` a aussi été demandé par API, mais la lecture du réglage n'était pas disponible). L'étape prebuild assure le blocage même avec la commande par défaut. Vérifier le résultat du CI avant tout merge ; dans GitHub Settings > Rules > Rulesets, si disponible, exiger la réussite du job `check` avant mise à jour de main, avec PR obligatoire si souhaité. Cela change le workflow direct de push : ne l'activer qu'après le premier push et le succès de ce CI.
+
+`.github/dependabot.yml` active les mises à jour hebdomadaires npm et Actions à partir du commit sur la branche par défaut. Dans GitHub Settings > Advanced Security (ou Code security), vérifier Dependency graph, Dependabot alerts et Dependabot security updates. Ces interrupteurs ne sont pas accessibles depuis le connecteur actuel. Examiner les PR et leurs tests avant merge. Documentation : https://docs.github.com/en/code-security/concepts/supply-chain-security/about-the-dependabot-yml-file
+
+### 2. Antivirus : blocage des fichiers non analysés
+
+`lib/scan-file.ts` impose une analyse du contenu avant l'écriture dans les buckets (inscriptions et galerie). La taille et le format restent contrôlés. Le scanner répond `clean` uniquement si ClamAV renvoie un résultat concluant et le SHA-256 correspond ; un résultat infecté, inconnu, une panne, un timeout ou une configuration manquante empêchent le dépôt. **Tant que le scanner n'est pas opérationnel, les nouvelles pièces jointes et images de galerie seront refusées.** Les inscriptions sans pièce jointe et les liens vidéo restent utilisables. Les fichiers historiques ne sont pas rétroactivement analysés.
+
+Le service fourni dans `tools/antivirus` nécessite un hôte de confiance avec Docker et un reverse proxy HTTPS. Ne jamais exposer le port TCP 3310 de clamd sur Internet (protocole non authentifié). Le service HTTP écoute uniquement sur 127.0.0.1:8787 côté hôte ; limiter la taille à 3 Mo et le débit dans le proxy TLS, ne pas logger les contenus ou l'en-tête Authorization, utiliser un certificat valide. Générer un jeton aléatoire >= 32 caractères sur ton poste, le conserver dans le fichier `.env` privé de l'hôte, non commité. Sur l'hôte : `docker compose up -d` dans le dossier `tools/antivirus`. Attendre que les signatures ClamAV soient à jour ; épingler les images à des digests vérifiés lors du déploiement et organiser les mises à jour. Configurer la même valeur dans Vercel (Secret) `FILE_SCAN_TOKEN` et `FILE_SCAN_URL=https://<ton-hote>/scan` (Config) puis redéployer. Aucun fichier étudiant ne doit être transféré à un service public d'analyse. Le service est préparé mais n'a pas été hébergé ou connecté ; aucun hébergeur ni coût n'a été engagé.
+
+Recette sur un environnement isolé : tester fichier PDF/image sain, fichier de test antivirus EICAR officiel (sans le placer en production), panne du scanner et verdict/hash invalide. Vérifier aucun objet écrit en cas de refus. Un antivirus n'offre pas une garantie d'absence de malware. Documentation ClamAV : https://docs.clamav.net/manual/Usage/Scanning.html
+
+### 3. CSP avec nonce : phase d'observation puis application
+
+`middleware.ts` génère un nonce aléatoire par requête HTML, le transmet à Next.js via l'en-tête CSP de requête et prépare une politique `script-src` à nonce + `strict-dynamic` sans `unsafe-inline` pour les scripts. Le layout est dynamique. Les styles inline restent autorisés pour les animations et graphiques. Au premier déploiement, la CSP à nonce est en `Report-Only` tandis que l'ancienne politique continue à protéger le site. Tester la console navigateur (Chrome, Firefox, téléphone), le chargement/hydratation des pages, les formulaires et Turnstile, la galerie, la connexion et la MFA, le dashboard et les exports. Vérifier deux rechargements avec des nonces distincts. Après validation, ajouter sur Vercel `CSP_NONCE_ENFORCE=true` (Config, Production), redéployer et répéter les tests ; le header `Content-Security-Policy` doit contenir le nonce et ne plus autoriser les scripts inline. Retour arrière si régression : `CSP_NONCE_ENFORCE=false` puis redéployer. Ne pas mettre le nonce en cache. Les API ont une CSP restrictive distincte. Le mode strict n'a pas été activé en production pendant la préparation.
+
+### 4. Sauvegardes chiffrées et restauration
+
+Le projet Supabase est sur le plan Free : ne pas compter sur un téléchargement de sauvegardes quotidiennes gérées. Une sauvegarde PostgreSQL ne contient pas les objets Storage. Installer les clients PostgreSQL compatibles avec la version serveur (17 ou supérieure compatible), `age`, `tar`, et Node/npm sur une machine de confiance avec stockage **chiffré** (y compris le dossier temporaire du système). Conserver la clé privée age hors du dépôt, dans un coffre séparé ; `age-keygen -o <chemin-prive>` génère une identité et son destinataire public `age1...`.
+
+Créer un fichier d'environnement **hors du projet**, avec droits d'accès restreints à ton compte Windows. Utiliser les paramètres de connexion directe ou session pooler Supabase (port 5432, pas le pooler transactionnel) du bouton Connect, le certificat racine Supabase, et la clé privée du projet. Ne jamais les envoyer dans un chat, GitHub, un artefact CI ou des logs. Exemple de noms (remplacer les valeurs sur ton poste) :
+
+```dotenv
+PGHOST=
+PGPORT=5432
+PGUSER=
+PGPASSWORD=
+PGDATABASE=postgres
+PGSSLROOTCERT=C:/chemin-prive/certificat.crt
+BACKUP_SUPABASE_URL=https://yvssxbxdzljgytmjiajb.supabase.co
+BACKUP_SERVICE_KEY=
+BACKUP_AGE_RECIPIENT=age1...
+BACKUP_DIRECTORY=C:/chemin-prive/expo-backups
+```
+
+Faire la première sauvegarde pendant une fenêtre sans écriture (fermer les inscriptions et convenir d'une pause des modifications admin). Le script `scripts/backup.mjs` utilise TLS verify-full, archive logique des schémas public/auth/storage et télécharge les objets des deux buckets via Storage. Le manifeste contient les chemins, tailles et SHA-256 ; sortie `expo-...tar.age` chiffrée avec age. Les données intermédiaires sont supprimées à la fin, mais un arrêt brutal peut laisser des fichiers temporaires : utiliser un disque chiffré, contrôler le dossier temporaire et ne jamais le synchroniser. L'archive ne constitue pas un snapshot complet de la plateforme : les secrets Vercel, réglages Auth, extensions et rôles du cluster doivent être documentés/sauvegardés séparément via leurs procédures officielles. Garder une seconde copie chiffrée sur un support hors site sécurisé.
+
+```powershell
+node --env-file="C:\chemin-prive\expo-backup.env" scripts/backup.mjs
+$env:BACKUP_AGE_IDENTITY_FILE="C:\chemin-prive\identite-age.txt"
+npm run backup:verify -- "C:\chemin-prive\expo-backups\expo-AAAA-MM-JJ.tar.age"
+Remove-Item Env:BACKUP_AGE_IDENTITY_FILE
+```
+
+Le contrôle vérifie le déchiffrement, le manifeste, les empreintes des objets et l'inventaire pg_restore. **Ce n'est pas une restauration réelle.** Une fois la première sauvegarde vérifiée, installer la tâche quotidienne Windows (session ouverte ; machine allumée) avec `powershell -File scripts/register-backup-task.ps1 -ConfigFile "C:\chemin-prive\expo-backup.env" -At 02:00`. Vérifier le Planificateur de tâches, le résultat de chaque exécution et la présence d'archives récentes. Ne pas effacer automatiquement les anciennes sauvegardes avant d'avoir défini une durée de conservation et vérifié les copies.
+
+Exercice de restauration obligatoire : sur un projet/local stack **isolé** de la production (sans mail, webhooks ni secrets de production), utiliser le guide officiel Supabase Backup and Restore. Inspecter le dump logique et rétablir les extensions/roles/managés selon la version de la plateforme ; ne pas exécuter de `--clean` ni restaurer sur la base de production. Les schémas gérés Auth/Storage ne doivent pas être écrasés aveuglément. Restaurer les objets depuis le manifeste en respectant les buckets et politiques privés ; vérifier les comptes (nouvelle session/MFA si nécessaire), les comptages, les statuts, les pièces jointes et les empreintes, les permissions et la recette de l'application. Documenter le temps de reprise et les écarts. Les scripts ont été vérifiés syntaxiquement mais ni sauvegarde réelle, ni restauration réelle, ni tâche quotidienne n'ont été exécutées sur ton poste. Guides : https://supabase.com/docs/guides/platform/backups et https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore
+
+### 5. Surveillance des incidents
+
+Deux tables serveur-only et une fonction transactionnelle ajoutées à Supabase. Les comptes et les sources réseau sont représentés par des HMAC à domaines séparés (pas d'e-mail ni d'IP brute dans ces tables). Seuils par fenêtre fixe de 15 min : 10 échecs/blocages pour un compte depuis au moins 3 sources, 10 échecs/blocages depuis une source, 5 erreurs serveur, 3 fichiers détectés infectés. Les seuils sont des signaux et ne constituent pas une preuve d'attaque. Déduplication par fenêtre/type/cible ; conservation 14 jours des agrégats et 30 jours des alertes, purge lors de l'enregistrement de nouveaux événements. Le code limite aussi les essais de connexion par compte globalement. La surveillance n'est pas un SIEM : seules les routes instrumentées sont suivies et une panne de Supabase peut empêcher l'enregistrement. Aucun mot de passe, OTP, corps de requête, document ni clé n'est enregistré.
+
+Dans l'espace Coordination > Sécurité > Alertes de sécurité, le principal consulte les alertes récentes. Il peut les actualiser manuellement sans polling continu qui maintiendrait artificiellement la session. En option, `SECURITY_WEBHOOK_URL` (HTTPS d'un récepteur de confiance) et `SECURITY_WEBHOOK_TOKEN` (Secret >=32 caractères) envoient une notification JSON sans compte ni IP au premier seuil franchi. Livraison best effort, pas de retry automatique ; aucun récepteur n'a été configuré. Le workflow `.github/workflows/availability.yml` teste la disponibilité et les protections publiques toutes les heures et peut déclencher les notifications d'échec GitHub Actions selon les réglages de compte (vérifier que les workflows programmés et les notifications sont autorisés). Il ne fait pas de tentative de connexion ni d'inscription. Vérifier également les erreurs Vercel Observability ; les logs seuls ne constituent pas un système d'alertes complet.
+
+### 6. Recette et état de préparation
+
+La migration et le test SQL de déduplication/détection multi-sources ont réussi avec rollback ; 48 candidatures et deux administrateurs conservés. Le test ne génère pas de faux incidents en production. Les tests unitaires couvrent aussi la CSP et le contrat scanner. L'analyse npm réelle, le lockfile, la compilation intégrale, le scanner ClamAV opérationnel, l'application stricte de la CSP, les sauvegardes réelles/restauration et la réception des alertes doivent être confirmés avant ouverture. Aucun secret ni donnée étudiante ne doit être publié. La messagerie et l'ouverture des inscriptions restent inchangées.

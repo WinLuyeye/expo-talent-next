@@ -1,0 +1,8 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),ts=require('typescript');
+const m={exports:{}};new Function('module','exports',ts.transpileModule(fs.readFileSync('lib/security-runtime.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(m,m.exports);
+const {contentPolicy,secureEndpoint,scanVerdict}=m.exports;
+test('strict CSP uses nonce and does not permit inline script or eval in production',()=>{const script=contentPolicy('YWJjZA==',true,true).split('; ').find(x=>x.startsWith('script-src'));assert(script.includes("'nonce-YWJjZA=='"));assert(script.includes("'strict-dynamic'"));assert(!script.includes('unsafe-inline'));assert(!script.includes('unsafe-eval'));});
+test('report-only fallback remains compatible',()=>{assert(contentPolicy('YWJjZA==',true,false).includes("script-src 'self' 'unsafe-inline'"));});
+test('reject invalid CSP nonce',()=>assert.throws(()=>contentPolicy("bad';",true,true)));
+test('only HTTPS endpoint without credentials or fragments',()=>{assert(secureEndpoint('https://scanner.example.org/scan'));for(const u of ['http://example.org','file:///etc/passwd','https://a:b@example.org','https://example.org/#bad','invalid'])assert.equal(secureEndpoint(u),null);});
+test('scan clean requires matching digest and exact verdict',()=>{assert.equal(scanVerdict({verdict:'clean',sha256:'abc'},'abc'),'clean');assert.equal(scanVerdict({verdict:'clean',sha256:'xyz'},'abc'),'unknown');assert.equal(scanVerdict({verdict:'infected',sha256:'abc'},'abc'),'infected');assert.equal(scanVerdict({verdict:'error',sha256:'abc'},'abc'),'unknown');assert.equal(scanVerdict(null,'abc'),'unknown');});

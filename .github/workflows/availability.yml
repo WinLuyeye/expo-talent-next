@@ -1,0 +1,19 @@
+name: Disponibilite production
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Vérifier configuration et Turnstile
+        run: |
+          curl --fail --silent --show-error --max-time 20 --retry 2 https://expo-talent-next.vercel.app/api/config | jq -e '.turnstile.mode == "enabled" and (.settings.open | type == "boolean")' > /dev/null
+      - name: Vérifier le portail privé et le refus anonyme
+        run: |
+          curl --fail --silent --show-error --max-time 20 -o /dev/null https://expo-talent-next.vercel.app/espace-coordination
+          test "$(curl --silent --show-error --max-time 20 -o /dev/null -w '%{http_code}' https://expo-talent-next.vercel.app/api/admin/data)" = 401

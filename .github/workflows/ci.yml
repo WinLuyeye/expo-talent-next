@@ -15,8 +15,6 @@ jobs:
         with:
           node-version: '22'
       - name: Installer les dépendances
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
-      - run: npm run typecheck
-      - run: npm test
+        run: npm ci
+      # prebuild executes typecheck, unit tests and npm audit (high/critical).
       - run: npm run build

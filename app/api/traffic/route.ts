@@ -1,3 +1,4 @@
+import {securityEvent} from '@/lib/security-incidents';
 import {NextResponse} from 'next/server';
 import {z} from 'zod';
 import {db,digest,limit,source,origin,HttpError} from '@/lib/server';
@@ -19,5 +20,5 @@ export async function POST(req:Request){
     const r=await db().rpc('expo_record_traffic',{p_day:day,p_token:digest('traffic-session:'+day+':'+data.session),p_device:classifyDevice(ua),p_channel:data.channel});
     if(r.error)throw new HttpError('Mesure d’audience indisponible.',503);
     return empty();
-  }catch(e){return new NextResponse(null,{status:e instanceof HttpError?e.status:e instanceof SyntaxError?400:503,headers:{'Cache-Control':'no-store'}});}
+  }catch(e){if(!(e instanceof SyntaxError)&&(!(e instanceof HttpError)||e.status>=500))await securityEvent('server_error',req);return new NextResponse(null,{status:e instanceof HttpError?e.status:e instanceof SyntaxError?400:503,headers:{'Cache-Control':'no-store'}});}
 }
