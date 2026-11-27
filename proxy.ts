@@ -1,6 +1,6 @@
 import {NextRequest,NextResponse} from 'next/server';
 import {contentPolicy} from './lib/security-runtime';
-export function middleware(request:NextRequest){
+export function proxy(request:NextRequest){
  const nonce=btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24))));
  const production=process.env.NODE_ENV==='production';
  const enforce=process.env.CSP_NONCE_ENFORCE==='true';

@@ -5,7 +5,7 @@ import {applicationReport,workbookReport,pdfReport,reportResponse} from '@/lib/r
 import {filterApplications,initialFilter} from '@/lib/application-model';
 import QRCode from 'qrcode';
 import {acceptanceMessage,acceptanceSubject} from '@/lib/acceptance';
-import {validPhone,validMatricule,safeText,safeHttps} from '@/lib/security-policy';
+import {str,https,reg,tracking,configSchema,exportSchema} from '@/lib/validation';
 import {securityEvent} from '@/lib/security-incidents';
 import {scannerConfigured} from '@/lib/scan-file';
 import {turnstileConfig,verifyTurnstile} from '@/lib/turnstile';
@@ -14,16 +14,10 @@ import {defaults,statuses,fullName,labels,type Entry,type Values,type Settings} 
 export const runtime='nodejs';export const dynamic='force-dynamic';export const maxDuration=60;
 type Context={params:Promise<{path:string[]}>};
 const json=(data:unknown,status=200)=>NextResponse.json(data,{status,headers:{'Cache-Control':'no-store'}});
-const str=(n=150)=>z.string().trim().min(1).max(n).refine(safeText),opt=(n=150)=>z.string().trim().max(n).refine(safeText).optional().default('');
-const https=z.string().trim().max(500).refine(safeHttps,'Lien HTTPS invalide');
-const reg=z.object({nom:str(),postnom:str(),prenom:str(),sexe:opt(),email:z.string().trim().email().max(150).transform(s=>s.toLowerCase()),telephone:str(25).refine(validPhone),matricule:str().refine(validMatricule).transform(s=>s.replace(/\s+/g,'').toUpperCase()),filiere:str(),departement:str(),promotion:str(),vacation:opt(),categorie:str(),intitule:str(),description:str(2000),type:z.enum(['Individuelle','En groupe']),groupe:opt(),participants:z.coerce.number().int().min(1).max(100).default(1),besoins:opt(2000),motivation:str(2000),video:https.optional().default(''),certifie:z.literal(true),reglement:z.literal(true),consentement:z.literal(true),website:z.literal('').optional().default('')});
-const tracking=z.object({ref:str(40).transform(s=>s.toUpperCase()),email:z.string().email().max(150).transform(s=>s.trim().toLowerCase())});
-const configSchema=z.object({categories:z.array(str()).min(1).max(60),promotions:z.array(str()).max(100),filieres:z.array(str()).max(100),departements:z.array(str()).max(100),vacations:z.array(str()).max(100),open:z.boolean(),maintenance:z.boolean().default(false),date:opt(50),deadline:opt(50),venue:opt(2000),auditions:opt(2000),repetitions:opt(2000),program:opt(10000),announcements:opt(10000),email:z.string().max(150).refine(s=>!s||z.string().email().safeParse(s).success),whatsapp:z.string().max(20).regex(/^(\+?[0-9]{7,15})?$/),social:https,rules:opt(20000),privacy:opt(20000),retention:opt(2000)});
 const subject='Confirmation de ton inscription — EXPO TALENT ISS-KIN';
 function confirmation(d:Values,id:string){return `Bonjour ${d.prenom},\n\nNous avons le plaisir de te confirmer que ton inscription à EXPO TALENT a bien été enregistrée.\n\nNom complet : ${fullName(d)}\nPromotion : ${d.promotion}\nCatégorie : ${d.categorie}\nNuméro d'inscription : ${id}\nStatut : En attente de validation\n\nNotre équipe examinera ta candidature et te communiquera les prochaines étapes.\nPrépare-toi à révéler ton talent !\n\nLa Coordination estudiantine\nInstitut Supérieur de Statistique de Kinshasa — ISS-KIN.\n\nRévélons aujourd’hui les talents qui façonneront demain !`}
 const parse=async(req:Request)=>req.json().catch(()=>{throw new HttpError('Données invalides.')});
 async function entry(id:string){const r=await db().from('applications').select('*').eq('id',id).maybeSingle();if(r.error)throw new HttpError('Base indisponible.',500);if(!r.data)throw new HttpError('Référence introuvable.',404);return r.data as Entry}
-const exportSchema=z.object({search:z.string().max(250).default(''),scope:z.enum(['all','real','demo']).default('all'),filters:z.object({promotion:opt(),filiere:opt(),categorie:opt(),status:opt()}).default({}),participantsOnly:z.boolean().default(false),statsOnly:z.boolean().default(false)});
 async function exportData(kind:string,req:Request){const filter=req.method==='GET'?{...initialFilter,participantsOnly:kind.startsWith('participants.'),statsOnly:kind.startsWith('statistics.')}:exportSchema.parse(await parse(req));const rows=filterApplications((await allRows('applications')) as Entry[],filter);const format=kind.endsWith('.pdf')?'pdf':'xlsx';if(format==='pdf'&&!filter.statsOnly&&rows.length>300)throw new HttpError('Le PDF détaillé est limité à 300 dossiers. Affine les filtres ou exporte en Excel.',413);const report=applicationReport(rows,filter.scope,filter.statsOnly,!!filter.participantsOnly);const bytes=format==='pdf'?await pdfReport(report):await workbookReport(report);return reportResponse(bytes,format,'expo-talent-'+(filter.statsOnly?'statistiques':filter.participantsOnly?'participants':'candidatures'));}
 async function handle(req:Request,ctx:Context){const p=(await ctx.params).path.join('/'),get=req.method==='GET';if(!get)origin(req);
 if(p==='config'&&get){const s=await settings();return json({settings:{...s,open:s.open&&!s.maintenance&&(!s.deadline||Date.parse(s.deadline)>Date.now())},gallery:await gallery(),turnstile:turnstileConfig(),fileScanning:scannerConfigured()})}

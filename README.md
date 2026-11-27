@@ -4,13 +4,32 @@
 
 Plateforme francophone de gestion des inscriptions et des candidatures à EXPO TALENT, organisée par la coordination estudiantine de l’Institut Supérieur de Statistique de Kinshasa (ISS-KIN).
 
-**Édition du logiciel :** V2.5 — sécurité et fiabilité (inclut les améliorations UI/UX V2.4). Documentation consolidée le 26 novembre 2026. Les fichiers de mise à jour temporaires ne sont pas nécessaires au fonctionnement du projet.
+**Édition du logiciel :** V2.7.1 — correctifs de dépendances et sécurité (inclut les versions précédentes). Documentation actualisée le 27 novembre 2026 ; publication après recette. Les fichiers de mise à jour temporaires ne sont pas nécessaires au fonctionnement du projet.
 
 - [Site public](https://expo-talent-next.vercel.app)
 - [Espace Coordination](https://expo-talent-next.vercel.app/espace-coordination)
 - [Dépôt GitHub](https://github.com/WinLuyeye/expo-talent-next)
 - [Déploiements Vercel](https://vercel.com/winluyeyes-projects/expo-talent-next/deployments)
 - [Projet Supabase](https://supabase.com/dashboard/project/yvssxbxdzljgytmjiajb)
+
+## Correctif V2.7.1 — dépendances
+
+Le build V2.7 a échoué sur l'audit npm (PostCSS, Zod, UUID). Cibles du correctif : Next.js 16.4.6, React/React DOM 19.3.1, PostCSS 8.5.32, Zod 4.6.7 et ExcelJS 4.4.0 avec UUID 11.1.1. Webpack est conservé explicitement pour limiter les changements de compilation. `proxy.ts` remplace `middleware.ts` sans retirer la CSP à nonce. Les schémas Zod sont centralisés ; le défaut des filtres est parsé avec `prefault` pour conserver les valeurs vides. Les protections et l'audit npm bloquant restent obligatoires. Aucun changement Supabase ni nouvelle migration.
+
+Utiliser Node.js LTS 22 ou 24. À la racine, générer le vrai lockfile puis installer :
+
+```powershell
+npm install --package-lock-only --ignore-scripts
+npm ci
+npm run security:check
+npm run build
+```
+
+Le script `verify-lock.mjs` exige un lockfile cohérent avec le manifeste et les versions de sécurité ciblées. Ne pas inventer le lockfile, ne pas lancer `npm audit fix --force`, ne pas contourner `prebuild`. Si l'audit ou les tests échouent, ne pas publier. Ajouter explicitement `package-lock.json` au commit avec les fichiers modifiés du correctif. Vérifier les logs Vercel : installation, tests, audit, compilation puis READY sur le bon commit. Après déploiement, exécuter `npm run test:smoke` avec `SMOKE_BASE_URL` pointant vers le site et effectuer les tests navigateur/authentifiés : formulaire et Turnstile, MFA, recherche, exports Excel/PDF, scanner et alertes. Les tests ajoutés portent sur les vrais schémas et générateurs avec des données fictives, sans accès à la production.
+
+Les dépendances ont été choisies à partir des alertes npm et des versions publiées ; l'installation réelle, l'audit actualisé et la compilation doivent encore être exécutés. La CSP reste en observation tant que `CSP_NONCE_ENFORCE` n'est pas activée ; scanner, sauvegardes réelles et webhooks restent à configurer conformément à la section V2.7. Pas de désactivation de ces garde-fous pour faire passer le build.
+
+Références : https://github.com/advisories/GHSA-mrhx-c7xc-m3w5 ; https://github.com/advisories/GHSA-w5hq-g745-h8pq ; https://github.com/advisories/GHSA-r28c-9q8g-f849 ; https://nextjs.org/docs/app/guides/upgrading/version-16
 
 ## 1. Fonctionnalités
 
