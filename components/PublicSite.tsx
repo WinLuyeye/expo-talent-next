@@ -149,6 +149,8 @@ export default function PublicSite() {
   const honey = useRef<HTMLInputElement>(null);
   const submitting = useRef(false);
   const [captcha, setCaptcha] = useState({ mode: "disabled", siteKey: "" });
+  const [fileScanning, setFileScanning] = useState(false);
+  const [mailAvailable, setMailAvailable] = useState(false);
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaAttempt, setCaptchaAttempt] = useState(0);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -165,10 +167,12 @@ export default function PublicSite() {
     reduce = useReducedMotion(),
     y = useTransform(scrollY, [0, 700], [0, 100]);
   useEffect(() => {
-    api<{ settings: Settings; gallery: Gallery[]; turnstile?: { mode: string; siteKey: string } }>("config")
+    api<{ settings: Settings; gallery: Gallery[]; fileScanning?: boolean; mailAvailable?: boolean; turnstile?: { mode: string; siteKey: string } }>("config")
       .then((r) => {
         setCfg(r.settings);
         setGallery(r.gallery);
+        setFileScanning(r.fileScanning === true);
+        setMailAvailable(r.mailAvailable === true);
         if (r.turnstile) setCaptcha(r.turnstile);
         setReady(true);
       })
@@ -265,6 +269,7 @@ export default function PublicSite() {
     if (step < 3) { setStep(s => s + 1); return; }
     if (!draft.online) { setError("Reconnecte-toi avant l’envoi. Tes champs sont conservés."); return; }
     if (captcha.mode === "misconfigured" || (captcha.mode === "enabled" && !captchaToken)) { setError("Vérification anti-robot indisponible ou incomplète."); return; }
+    if (file && !fileScanning) { setError("L’analyse antivirus est indisponible. Retire la pièce jointe avant l’envoi."); setStep(2); return; }
     submitting.current = true;
     setBusy(true);
     try {
@@ -653,6 +658,7 @@ export default function PublicSite() {
                         Photo ou document (facultatif, 3 Mo max)
                         <input
                           type="file"
+                          disabled={!fileScanning}
                           accept="image/jpeg,image/png,image/webp,application/pdf"
                           onChange={(e) => {
                             const f = e.target.files?.[0];
@@ -666,6 +672,7 @@ export default function PublicSite() {
                             setError("");
                           }}
                         />
+                        {!fileScanning && <small role="status">Analyse antivirus indisponible : tu peux continuer sans document.</small>}
                         {file && (
                           <>
                             <small>{file.name}</small>
@@ -826,7 +833,8 @@ export default function PublicSite() {
                 placeholder="ton@email.com"
               />
             </label>
-            <button className="btn" disabled={tracking}>
+            {!mailAvailable && <p role="status">Le suivi par e-mail est temporairement indisponible. Contacte la coordination.</p>}
+            <button className="btn" disabled={tracking || !mailAvailable}>
               Recevoir un code
             </button>
             {sent && (

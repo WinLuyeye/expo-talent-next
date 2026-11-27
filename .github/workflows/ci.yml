@@ -14,6 +14,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
+      - name: Vérifier le lockfile suivi par Git
+        run: |
+          git ls-files --error-unmatch -- package-lock.json
+          node scripts/verify-lock.mjs
       - name: Installer les dépendances
         run: npm ci
       # prebuild executes typecheck, unit tests and npm audit (high/critical).

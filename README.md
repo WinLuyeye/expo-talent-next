@@ -4,13 +4,45 @@
 
 Plateforme francophone de gestion des inscriptions et des candidatures à EXPO TALENT, organisée par la coordination estudiantine de l’Institut Supérieur de Statistique de Kinshasa (ISS-KIN).
 
-**Édition du logiciel :** V2.7.1 — correctifs de dépendances et sécurité (inclut les versions précédentes). Documentation actualisée le 27 novembre 2026 ; publication après recette. Les fichiers de mise à jour temporaires ne sont pas nécessaires au fonctionnement du projet.
+**Édition du logiciel :** V2.8 — préparation au lancement (inclut les versions précédentes). Documentation actualisée le 27 novembre 2026 ; publication après recette. Les fichiers de mise à jour temporaires ne sont pas nécessaires au fonctionnement du projet.
 
 - [Site public](https://expo-talent-next.vercel.app)
 - [Espace Coordination](https://expo-talent-next.vercel.app/espace-coordination)
 - [Dépôt GitHub](https://github.com/WinLuyeye/expo-talent-next)
 - [Déploiements Vercel](https://vercel.com/winluyeyes-projects/expo-talent-next/deployments)
 - [Projet Supabase](https://supabase.com/dashboard/project/yvssxbxdzljgytmjiajb)
+
+## V2.8 — préparation au lancement (à déployer)
+
+Ce correctif conserve le design, les comptes et les candidatures. Il ne nécessite aucune migration SQL. Il ne modifie pas le réglage `open` enregistré ; **l'ouverture effective est bloquée par défaut** jusqu'à ce que les conditions ci-dessous soient réunies, y compris `LAUNCH_APPROVED=true`. En production V2.7.1, la fermeture temporaire doit être faite par le principal dans Configuration. Ne pas ouvrir les inscriptions sans recette.
+
+### Publication reproductible (Windows, Node.js 22 LTS)
+
+Le fichier `package-lock.json` doit être produit par npm à partir de ce `package.json` V2.8, pas recopié à la main ni récupéré d'une version antérieure. Il contient tout le graphe transitif, les versions résolues et les empreintes d'intégrité. Le script `scripts/generate-lock.ps1` vérifie le projet et Node 22, génère un lockfile v3, contrôle sa cohérence et le place explicitement dans l'index Git (même si une règle d'exclusion locale le masque). Exécuter à la racine :
+
+```powershell
+powershell -NoProfile -File scripts/generate-lock.ps1
+npm ci
+npm run build
+git ls-files --error-unmatch -- package-lock.json
+git status
+```
+
+Alternative manuelle : `npm install --package-lock-only --ignore-scripts --package-lock=true --lockfile-version=3`, puis `node scripts/verify-lock.mjs` et `git add -f -- package-lock.json`. Arrêter dès qu'une commande retourne une erreur. `prebuild` impose le contrôle du lockfile, TypeScript, tests et audit npm (hautes/critiques). Ne jamais désactiver ce script, ni employer `npm audit fix --force`. Le CI vérifie désormais que le lockfile est suivi avant `npm ci`. Après publication du lockfile, régler Vercel sur Node 22.x, Install Command `npm ci`, Build Command `npm run build`. Vérifier explicitement le résultat de l'audit dans les logs. En cas de branche principale protégée, créer une branche puis une pull request et attendre le contrôle `check` avant fusion. N'activer le ruleset qu'après un CI vert. Ne pas fusionner automatiquement les PR Dependabot.
+
+### Ouverture effective et contrôles opérationnels
+
+Dans Configuration, le principal voit la liste des blocages (état de la configuration enregistrée). L'API publique ne révèle que des indicateurs booléens de disponibilité configurée ; la liste détaillée est réservée au principal via `GET /api/admin/launch/readiness`. L'API d'inscription vérifie également l'ouverture effective côté serveur. Les dates officielles (clôture future avant événement), lieu, contacts, listes académiques, règlement, politique de confidentialité et durée de conservation doivent être renseignés. Les indicateurs vérifient la configuration, pas la disponibilité réelle d'un service.
+
+1. Configurer et tester Resend (`RESEND_API_KEY`, `EMAIL_FROM`, expéditeur vérifié, vérifier le coût/quota avant d'ouvrir). Sans cela, le suivi est indisponible et son bouton est désactivé. Tester confirmation et code de suivi avec une adresse de test autorisée ; ne pas envoyer aux candidatures fictives.
+2. Tester Turnstile en navigateur (jeton valide, absent, expiré ; sans ouvrir les inscriptions de production pour la recette). Ne jamais publier la clé secrète.
+3. Tester MFA et récupération du compte, puis `ADMIN_MFA_REQUIRED=true` ; tester la CSP Report-Only (console, hydratation, animations, Turnstile, MFA, graphiques et exports) avant `CSP_NONCE_ENFORCE=true`. Ne pas activer les deux sans avoir vérifié l'accès au compte et une procédure de reprise.
+4. Configurer ClamAV sous contrôle de la coordination, HTTPS et jeton privé, tester scanner sain/infecté/indisponible avec des échantillons inoffensifs adaptés à la recette. Tant que le scanner n'est pas configuré, le formulaire et la galerie désactivent les nouveaux fichiers ; le serveur refuse toujours tout document non analysé. Un lancement sans documents est possible si cette restriction est acceptée et annoncée.
+5. Configurer les notifications d'incidents avec `SECURITY_ALERT_EMAIL` (adresse privée vérifiée par la coordination, via Resend déjà configuré), ou avec les deux variables `SECURITY_WEBHOOK_URL` et `SECURITY_WEBHOOK_TOKEN`. Les alertes ne contiennent ni IP brute, ni identifiant de compte ; envoi best effort au déclenchement, sans garantie de réception. Tester en environnement isolé et surveiller les quotas. Le webhook reste facultatif si l'alerte e-mail est configurée.
+6. Effectuer la première sauvegarde chiffrée et sa vérification, puis un exercice de restauration **hors production** ; mettre en place la tâche planifiée et une copie hors site, vérifier régulièrement. La procédure détaillée V2.7 reste ci-dessous.
+7. Après CI vert, audit, recette mobile/ordinateur, test des rôles, export PDF/Excel, test mail, scanner (ou mode sans documents accepté), sauvegarde/restauration et alertes : ajouter `LAUNCH_APPROVED=true` dans Vercel Production, redéployer puis vérifier l'état public. Le principal peut toujours fermer les inscriptions et activer le mode maintenance. Pour fermer d'urgence, désactiver `open` dans la configuration ou `LAUNCH_APPROVED` avec redéploiement.
+
+Les requêtes JSON de l'API centrale sont maintenant limitées à 128 Kio, avec lecture bornée même sans Content-Length ; les limites de fichiers restent inchangées. L'ordre de lecture des listes côté serveur est stabilisé par identifiant en cas de dates égales. Le smoke test vérifie la configuration, les refus anonymes et les nouvelles routes d'administration. Ces contrôles ne remplacent pas les tests de navigation, de charge, d'accessibilité ni un audit d'intrusion. La pagination et la recherche PostgreSQL, l'agrégation serveur des tableaux de bord, les exports asynchrones, l'automatisation des tests navigateur et la politique de suppression des données nécessitent un lot complémentaire, conçu et testé sans perte de données ; aucune de ces fonctions n'est déclarée terminée ici.
 
 ## Correctif V2.7.1 — dépendances
 

@@ -1,6 +1,6 @@
 {
   "name": "expo-talent-iss-kin",
-  "version": "2.7.1",
+  "version": "2.8.0",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -15,7 +15,7 @@
     "backup:verify": "node scripts/verify-backup.mjs"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": "22.x"
   },
   "dependencies": {
     "next": "16.4.6",

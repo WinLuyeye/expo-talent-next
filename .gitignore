@@ -13,3 +13,6 @@ backups/
 *.dump
 *.pem
 .env.backup*
+
+# Reproducible npm builds: the real lockfile must be tracked.
+!package-lock.json
