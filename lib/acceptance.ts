@@ -37,7 +37,7 @@ export async function acceptancePDF(a:Entry,acceptedAt:string):Promise<Buffer>{
   function fitted(s:unknown,x:number,y:number,w:number,maxLines=3){let size=11,lines=wrap(safe(s),bold,size,w);while(lines.length>maxLines&&size>6){size-=.5;lines=wrap(safe(s),bold,size,w);}if(lines.length>maxLines){lines=lines.slice(0,maxLines);let last=lines[maxLines-1];while(bold.widthOfTextAtSize(last+'…',size)>w)last=last.slice(0,-1);lines[maxLines-1]=last+'…';}lines.forEach((v,i)=>text(v,x,y-i*(size+1),size,bold));}
   rect(0,0,595,842,navy);rect(0,833,595,9,yellow);
   rect(36,741,62,62,white);
-  const logo=await doc.embedJpg(Buffer.from(LOGO_JPEG,'base64'));page.drawImage(logo,{x:41,y:746,width:52,height:52});
+  const logo=await doc.embedJpg(Uint8Array.from(Buffer.from(LOGO_JPEG,'base64')));page.drawImage(logo,{x:41,y:746,width:52,height:52});
   text('EXPO TALENT',112,783,27,bold,yellow);text('INSTITUT SUPÉRIEUR DE STATISTIQUE DE KINSHASA',112,764,9,bold);text('COORDINATION ESTUDIANTINE • ISS-KIN',112,748,9,normal,muted);
   text('FICHE D’ACCEPTATION',36,692,28,bold);text('Candidature retenue / EXPO TALENT',36,671,12,normal,muted);
   rect(36,615,523,42);text('RÉFÉRENCE UNIQUE',48,642,8,normal,muted);fitted(a.id,48,624,315,1);rect(389,626,158,20,yellow);text('CANDIDATURE ACCEPTÉE',398,633,9,bold,navy);
